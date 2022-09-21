@@ -1,0 +1,91 @@
+---
+title: "visualizations"
+output: html_document
+date: "2022-09-06"
+author: Esben & Jonathan
+---
+
+```{r cars}
+pacman::p_load(tidyverse, jsonlite, ggthemes, ggplot2)
+
+metaculus_dat <- fromJSON("https://www.metaculus.com/api2/questions/5121/")
+agi_probs <- metaculus_dat$community_prediction$full$y
+alignment_years <- dnorm(2020:2220, 2037, 10)
+
+pred_tibble <- tibble(AGI=agi_probs, Alignment=alignment_years) %>% 
+  mutate(year=row_number()+2019,
+         AGI=AGI/sum(AGI)) %>% 
+    pivot_longer(cols=c("AGI", "Alignment"))
+
+pred_tibble %>% 
+  mutate(name=fct_relevel(name,"Alignment", "AGI")) %>% 
+ggplot(aes(y=value, fill=name, x=year)) +
+  geom_line() +
+  geom_area(alpha=0.6, position="identity") +
+  coord_cartesian(expand=F, xlim=c(2020, 2100)) +
+  theme_minimal(base_size=14) +
+  theme(
+    legend.position = c(0.75, 0.83),
+    axis.line = element_line(),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    panel.background = element_blank(),
+    legend.direction = "horizontal",
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(r=1,l=0.2, unit="cm")
+  ) +
+  scale_fill_tableau() +
+  labs(x="Year",y="Probability", fill="Forecast", subtitle="Forecast of AGI timeline vs. optimistic alignment solution forecast")
+
+mean(alignment_years < agi_years)
+
+```
+
+## Calculating the updated $P(doom)$.
+
+```{r}
+doom <- c(0.85, 0.8, 0.1, 0.3, 0.5, 0.1, 0.005, 0.004, 0.65,0.09,0.77,0.035,0.0000002,0.02,0.02,0.00001,0.9,0.05,0.5,0.0005,0.3,0.5,0.1,0.3)
+
+alignment_works = 0.9
+mean(doom)
+mean(doom) * mean(alignment_years < agi_years) * alignment_works
+
+fixed_df <- tibble(
+  agi_probs = agi_probs,
+  alignment_probs = dnorm(2020:2220, 2037, 10),
+  agi_aligned_succes = 0.9,
+  agi_doom = mean(doom)
+) %>% 
+  mutate(row = row_number() + 2019,
+         alignment_probs = alignment_probs / sum(alignment_probs),
+         agi_probs = agi_probs / sum(agi_probs),
+         agi_est_doom = agi_probs * agi_doom,
+         alignment_cumsum = cumsum(alignment_probs),
+         agi_real_doom = (agi_probs * (1 - alignment_cumsum * agi_aligned_succes)) * agi_doom)
+
+fixed_df %>%
+  pivot_longer(cols=c("agi_probs", "alignment_probs", "agi_real_doom", "agi_est_doom")) %>% 
+  mutate(
+    name=fct_relevel(name, "alignment_probs", "agi_probs", "agi_est_doom", "agi_real_doom")
+  ) %>% 
+  ggplot(aes(x=row, y=value, fill=name, alpha=name)) +
+  geom_area(position="identity") +
+  geom_line(color="black") +
+  coord_cartesian(expand=F, xlim=c(2020,2100)) +
+  scale_fill_tableau(labels=c("Alignment solved", "AGI","P(doom)", "Calibrated P(doom)")) +
+  theme_minimal(base_size=14) +
+  theme(
+    legend.position = "bottom",
+    axis.line = element_line(),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    panel.background = element_blank(),
+    legend.direction = "horizontal",
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(r=1,l=0.2, unit="cm")
+  ) +
+  scale_alpha_manual(values=c(0.2, 0.2, 0.9, 0.9)) +
+  labs(subtitle="Forecast of AGI and the alignment solution with estimated doom\nand calibrated doom forecasts",y="Probability",x=NULL,fill=NULL) +
+  guides(alpha="none")
+```
+

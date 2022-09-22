@@ -1,0 +1,77 @@
+---
+title: "st2_gsheet"
+output: html_document
+date: "2022-09-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(gsheet, tidyverse, ggplot2)
+
+```
+
+```{r}
+df <- gsheet2tbl("https://docs.google.com/spreadsheets/d/1wVvyfZaFX6GNm_VoI958AbajgSbnI4wDk0T87MQWoKo/edit#gid=0") %>% 
+  mutate(
+    year_proposed = as.numeric(`Year proposed`),
+    year_solved = as.numeric(year_solved)
+  ) %>% 
+  drop_na(year_proposed, year_solved)
+
+```
+
+```{r}
+df_p <- df %>%
+  mutate(
+    time_to_solution = year_solved - year_proposed
+  ) %>% 
+  filter(time_to_solution < 500)
+alignment_proposed = 2014
+
+metaculus_dat <- fromJSON("https://www.metaculus.com/api2/questions/5121/")
+agi_probs <- metaculus_dat$community_prediction$full$y
+
+df_agi <- sample(0:200, 10000, replace=T, prob=agi_probs) %>% as_tibble %>% rename(year = value) %>% mutate(year = year+2020, type="agi")
+
+df_p <- df_p %>% 
+  mutate(year = time_to_solution + 2014) %>% 
+  mutate(type="solution") %>% 
+  select(type, year) %>% 
+  rbind(
+    df_agi
+  )
+
+df_p %>% 
+  ggplot() +
+  aes(year, fill=type) +
+  geom_density(alpha=0.6) +
+  # geom_point(aes(x=year, y=jitter(0.01, 1, 0.005), color=type)) +
+  coord_cartesian(expand=F, xlim=c(2020,2220)) +
+  theme_minimal(base_size=14) +
+  theme(
+    legend.position = c(0.75, 0.83),
+    axis.line = element_line(),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    panel.background = element_blank(),
+    legend.direction = "horizontal",
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(r=1,l=0.2, t=0.2, b=0.2, unit="cm")
+  ) +
+  scale_fill_tableau() +
+  scale_color_tableau() +
+  labs(x="Year",y="Probability", fill="Forecast", subtitle="Forecast of AGI timeline vs. optimistic alignment solution forecast", caption="CC-BY Apart Research")
+
+solution_sample <- df_p %>% 
+  filter(type=="solution") %>% 
+  select(year) %>% 
+  as.list %>% 
+  unlist %>% 
+  as.double
+
+agi_sample <- sample(2020:2220, 1000000, replace=T, prob=agi_probs) %>% as.double
+
+mean(solution_sample < agi_sample)
+
+```
+

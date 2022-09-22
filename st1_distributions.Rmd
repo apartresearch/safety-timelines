@@ -4,13 +4,34 @@ output: html_document
 date: "2022-09-06"
 author: Esben & Jonathan
 ---
+```{r}
+pacman::p_load(tidyverse, jsonlite, ggthemes, ggplot2)
+```
+
+
+```{r}
+dnorm(2020:2220, 2037, 10) %>% plot
+
+dgamma(0:200,4) %>% plot
+dgamma(0:200, 17*0.25, 0.205) %>%
+  as_tibble %>% 
+  mutate(x = row_number() + 2020) %>% 
+  ggplot() +
+  aes(x, value) +
+  geom_line() +
+  coord_cartesian(xlim=c(2020,2220), expand=F) +
+  geom_vline(xintercept=2037)
+```
 
 ```{r cars}
-pacman::p_load(tidyverse, jsonlite, ggthemes, ggplot2)
 
 metaculus_dat <- fromJSON("https://www.metaculus.com/api2/questions/5121/")
 agi_probs <- metaculus_dat$community_prediction$full$y
-alignment_years <- dnorm(2020:2220, 2037, 10)
+alignment_years <- dnorm(0:200, 17, 10)
+alignment_years <- alignment_years / sum(alignment_years)
+# dlnorm(0:200, 8, 2)
+# dgamma(0:200, 4, 0.2)
+# dbeta(seq(0, 1, 0.005), 2, 18)
 
 pred_tibble <- tibble(AGI=agi_probs, Alignment=alignment_years) %>% 
   mutate(year=row_number()+2019,
@@ -35,10 +56,14 @@ ggplot(aes(y=value, fill=name, x=year)) +
     plot.margin = margin(r=1,l=0.2, unit="cm")
   ) +
   scale_fill_tableau() +
-  labs(x="Year",y="Probability", fill="Forecast", subtitle="Forecast of AGI timeline vs. optimistic alignment solution forecast")
+  labs(x="Year",y="Probability", fill="Forecast", subtitle="Forecast of AGI timeline vs. optimistic alignment solution forecast", caption="CC-BY Apart Research")
 
-mean(alignment_years < agi_years)
+alignment_years_n <- sample(0:200, 10000, replace=T, prob=alignment_years)
+agi_years <- sample(0:200, 10000, replace=T, prob=agi_probs)
+mean(alignment_years_n < agi_years)
+median(alignment_years_n)
 
+# dlnorm(seq(0,1,0.005), 0.1, 1.5) %>% plot
 ```
 
 ## Calculating the updated $P(doom)$.
@@ -85,7 +110,7 @@ fixed_df %>%
     plot.margin = margin(r=1,l=0.2, unit="cm")
   ) +
   scale_alpha_manual(values=c(0.2, 0.2, 0.9, 0.9)) +
-  labs(subtitle="Forecast of AGI and the alignment solution with estimated doom\nand calibrated doom forecasts",y="Probability",x=NULL,fill=NULL) +
+  labs(subtitle="Forecast of AGI and the alignment solution with estimated doom\nand calibrated doom forecasts",y="Probability",x=NULL,fill=NULL, caption="CC-BY Apart Research") +
   guides(alpha="none")
 ```
 

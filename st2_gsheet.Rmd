@@ -6,8 +6,7 @@ date: "2022-09-21"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-pacman::p_load(gsheet, tidyverse, ggplot2)
-
+pacman::p_load(gsheet, tidyverse, ggplot2, jsonlite, ggthemes, PDFEstimator)
 ```
 
 ```{r}
@@ -25,20 +24,27 @@ df_p <- df %>%
   mutate(
     time_to_solution = year_solved - year_proposed
   ) %>% 
-  filter(time_to_solution < 500)
+  filter(time_to_solution < 500 & time_to_solution > 0)
+
 alignment_proposed = 2014
 
 metaculus_dat <- fromJSON("https://www.metaculus.com/api2/questions/5121/")
 agi_probs <- metaculus_dat$community_prediction$full$y
+alignment_probs <- dnorm(0:200, 17, 10)
 
-df_agi <- sample(0:200, 10000, replace=T, prob=agi_probs) %>% as_tibble %>% rename(year = value) %>% mutate(year = year+2020, type="agi")
+df_alignment <- sample(0:200, 10000, replace=T, prob=alignment_probs) %>% as_tibble %>% rename(year = value) %>% mutate(year = year+2020, type="Gaussian")
+df_agi <- sample(0:200, 10000, replace=T, prob=agi_probs) %>% as_tibble %>% rename(year = value) %>% mutate(year = year+2020, type="AGI")
 
 df_p <- df_p %>% 
   mutate(year = time_to_solution + 2014) %>% 
-  mutate(type="solution") %>% 
+  mutate(type="Mathematics") %>% 
   select(type, year) %>% 
   rbind(
-    df_agi
+    df_agi,
+    df_alignment
+  ) %>% 
+  mutate(
+    type=factor(type, levels=c("AGI", "Gaussian", "Mathematics"))
   )
 
 df_p %>% 
@@ -46,10 +52,10 @@ df_p %>%
   aes(year, fill=type) +
   geom_density(alpha=0.6) +
   # geom_point(aes(x=year, y=jitter(0.01, 1, 0.005), color=type)) +
-  coord_cartesian(expand=F, xlim=c(2020,2220)) +
+  coord_cartesian(expand=F, xlim=c(2020,2100)) +
   theme_minimal(base_size=14) +
   theme(
-    legend.position = c(0.75, 0.83),
+    legend.position = "bottom",
     axis.line = element_line(),
     plot.background = element_blank(),
     legend.background = element_blank(),
@@ -60,8 +66,11 @@ df_p %>%
   ) +
   scale_fill_tableau() +
   scale_color_tableau() +
-  labs(x="Year",y="Probability", fill="Forecast", subtitle="Forecast of AGI timeline vs. optimistic alignment solution forecast", caption="CC-BY Apart Research")
+  labs(x=NULL,y="Probability", fill="Forecast", subtitle="AGI timeline and time-to-solution for 67 mathematics problems")
+```
 
+
+```{r}
 solution_sample <- df_p %>% 
   filter(type=="solution") %>% 
   select(year) %>% 
@@ -72,6 +81,125 @@ solution_sample <- df_p %>%
 agi_sample <- sample(2020:2220, 1000000, replace=T, prob=agi_probs) %>% as.double
 
 mean(solution_sample < agi_sample)
+
+math_list <- (df_p %>% filter(type=="Mathematics") %>% select(year) %>% as.list %>% unlist) - 2014
+math_pdf <- density(math_list, n = 201, from=6, to=207)
+
+pdoom = (c(10,30,90,10,0.5,0.4,80,9,77,3.5,0.000002,2,85,80,2,0.001,90,5,50,0.05,30,50,10,70) / 100) %>% mean
+
+pdfs <- 
+  tibble(
+    agi=agi_probs / sum(agi_probs),
+    gauss=alignment_probs / sum(alignment_probs),
+    math=math_pdf$y / sum(math_pdf$y)
+  ) %>% 
+  mutate(
+    agi_cdf=cumsum(agi),
+    gauss_cdf=cumsum(gauss),
+    math_cdf=cumsum(math),
+    agi_doom=agi*pdoom,
+    gauss_doom=agi_doom * (1-gauss_cdf),
+    math_doom=agi_doom * (1-math_cdf),
+    year=row_number() + 2019
+  )
+
+pdfs %>% 
+  pivot_longer(
+    c(agi, gauss, math, agi_doom, math_doom)
+  ) %>% 
+  mutate(
+    name=factor(name, levels=c("agi", "gauss", "math", "agi_doom", "math_doom"))
+  ) %>% 
+  ggplot() +
+  aes(year,value,fill=name, alpha=name) +
+  geom_area(position="identity") +
+  geom_line(color="black") +
+  coord_cartesian(expand=F, xlim=c(2020, 2100)) +
+  scale_fill_tableau(labels=c("AGI", "Gaussian", "Mathematics", "P(doom)", "Math CP(doom)")) +
+  theme_minimal(base_size=14) +
+  theme(
+    legend.position = "bottom",
+    axis.line = element_line(),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    panel.background = element_blank(),
+    legend.direction = "horizontal",
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(r=1,l=0.2,t=0.2, b=0.2, unit="cm")
+  ) +
+  scale_alpha_manual(values=c(0.3, 0.3, 0.3, 0.9, 0.9)) +
+  labs(subtitle="Forecast of AGI and the alignment solution with estimated doom\nand calibrated doom forecasts",y="Probability",x=NULL,fill=NULL) +
+  guides(alpha="none")
+
+```
+
+```{r}
+
+df_list <- df %>% 
+  mutate(
+    solution_time =year_solved-year_proposed
+  ) %>% 
+  filter(solution_time > 0 & solution_time < 300) %>%
+  group_split(Problem)
+
+df_maths <- df_list %>% 
+  sapply(function(x) {
+    if(nrow(x) > 2) {
+      tibble(
+        N = nrow(x),
+        Category=paste0("[", nrow(x), "] ", first(x$Problem)),
+        Density=density(x$solution_time, n=2000, from=0, to=200)$y
+      )
+    }
+  }) %>% 
+  bind_rows() %>% 
+  group_by(Category) %>% 
+  summarise(
+    N,
+    Category,
+    Density,
+    Year=(row_number())/10+2019
+  )
+
+math_pdf_2000 <- density(math_list, n = 2000, from=0, to=200)
+math_df_2000 <- tibble(
+  Category="[66] Total",
+  Density=math_pdf_2000$y
+) %>% 
+  mutate(
+  Year=(row_number())/10+2019,
+  N=n()
+  )
+df_maths_p <- df_maths %>% 
+  rbind(math_df_2000) %>% 
+  mutate(
+    Density = Density / (1/log(N))
+  )
+
+df_maths_p %>% 
+  ggplot() +
+  aes(y=fct_reorder(Category, N), x=Year, fill=Density) +
+  geom_tile() +
+  coord_cartesian(expand=F, xlim=c(2020, 2100)) +
+  theme_minimal(base_size=14) +
+  theme(
+    legend.position = "none",
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    panel.background = element_blank(),
+    legend.direction = "horizontal",
+    panel.grid.minor = element_blank(),
+    axis.line = element_blank(),
+    plot.margin = margin(r=1,l=0.5,t=0.2, b=0.2, unit="cm")
+  ) + 
+  scale_y_discrete(position="right") +
+  scale_fill_gradientn(colours=c("#2C1539","#4C6DDA", "#83F48C","#EBCA57","#DE684E")) +
+  labs(y=NULL, x=NULL, subtitle="Topics in math and their estimated solution date from 2020 [samples]")
+
+elk <- 2021
+infrabayes <- 2019
+represent_values <- 2014
+
 
 ```
 

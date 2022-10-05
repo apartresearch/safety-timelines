@@ -29,6 +29,7 @@ df_p <- df %>%
 alignment_proposed = 2014
 
 metaculus_dat <- fromJSON("https://www.metaculus.com/api2/questions/5121/")
+
 agi_probs <- metaculus_dat$community_prediction$full$y
 alignment_probs <- dnorm(0:200, 17, 10)
 
@@ -193,7 +194,7 @@ df_maths_p %>%
     plot.margin = margin(r=1,l=0.5,t=0.2, b=0.2, unit="cm")
   ) + 
   scale_y_discrete(position="right") +
-  scale_fill_gradientn(colours=c("#2C1539","#4C6DDA", "#83F48C","#EBCA57","#DE684E")) +
+  scale_fill_gradientn(colours=c("#2C1539","#4C6DDA", "#83F48C","#EBCA57","#DE381E")) +
   labs(y=NULL, x=NULL, subtitle="Topics in math and their estimated solution date from 2020 [samples]")
 
 elk <- 2021
@@ -202,4 +203,122 @@ represent_values <- 2014
 
 
 ```
+
+# Modeling dynamics of safety timelines
+
+We would need to run an interacting probability distribution with some assumptions about how everything comes to be.
+
+# Pre-approved criticisms
+
+> Mathematical proofs are not relevant enough to alignment
+
+I tend to agree and this should be addressed in some way or another. Maybe we would like to set up the two ways to do alignment research: 1) The left-turn problem-solving approach and the 2) iterative understanding approach. 
+
+# Iterative worlds analysis
+
+```{r}
+solar_gen <- gsheet2tbl("https://docs.google.com/spreadsheets/d/10OUeb23qy1Mm8jvkrDKf96C9iLyRqvxToiTqFZk9-5g/edit#gid=366737030") %>% 
+  filter(Entity == "World")
+nuclear_gen <- gsheet2tbl("https://docs.google.com/spreadsheets/d/10OUeb23qy1Mm8jvkrDKf96C9iLyRqvxToiTqFZk9-5g/edit#gid=456055284") %>% 
+  filter(Entity == "World")
+wind_gen <- gsheet2tbl("https://docs.google.com/spreadsheets/d/10OUeb23qy1Mm8jvkrDKf96C9iLyRqvxToiTqFZk9-5g/edit#gid=523733041") %>% 
+  filter(Entity == "World")
+global_gen <- gsheet2tbl("https://docs.google.com/spreadsheets/d/10OUeb23qy1Mm8jvkrDKf96C9iLyRqvxToiTqFZk9-5g/edit#gid=1922331636") %>% 
+  filter(Entity == "World")
+year_min <- min(global_gen$Year)
+year_max <- max(global_gen$Year)
+publications <- gsheet2tbl("https://docs.google.com/spreadsheets/d/10OUeb23qy1Mm8jvkrDKf96C9iLyRqvxToiTqFZk9-5g/edit#gid=1940673904")
+
+df <- solar_gen %>% 
+  rename(TWh=`Electricity from solar (TWh)`) %>% 
+  mutate(Type="Solar") %>% 
+  rbind(
+    nuclear_gen %>% 
+      rename(TWh=`Electricity from nuclear (TWh)`) %>%
+      mutate(Type="Nuclear")
+  ) %>% 
+  rbind(
+    wind_gen %>% 
+      rename(TWh=`Electricity from wind (TWh)`) %>% 
+      mutate(Type="Wind")
+  ) %>% 
+  inner_join(publications) %>% 
+  rename(Publications = Amount) %>% 
+  mutate(`Publication type` = paste0(Type, " publications"),
+         Type = paste0(Type, " power (TWh)")) %>% 
+  inner_join(
+    global_gen %>% 
+      rename(`Global TWh` = `Electricity generation (TWh)`) %>% 
+      select(Year, `Global TWh`)
+  ) %>% 
+  mutate(
+    `% Global TWh` = TWh / `Global TWh`
+  )
+
+coeff = 400000
+
+df %>% 
+  ggplot() +
+  aes(Year) +
+  geom_area(aes(y=`% Global TWh` * coeff, fill=Type), alpha=0.4, color="#555555", position="identity") +
+  geom_line(aes(y=Publications, color=`Publication type`), size=1) +
+  scale_y_continuous(name="Publications", sec.axis=sec_axis(trans=~./coeff, name="% Global TWh", labels=scales::percent)) +
+  theme_minimal(base_size=14) +
+  theme(
+    legend.position = "bottom",
+    axis.line = element_line(),
+    plot.background = element_blank(),
+    legend.background = element_blank(),
+    panel.background = element_blank(),
+    legend.direction = "horizontal",
+    panel.grid.minor = element_blank(),
+    plot.margin = margin(r=1,l=0.2,t=0.2, b=0.2, unit="cm")
+  ) +
+  scale_fill_tableau() +
+  scale_color_tableau() +
+  coord_cartesian(expand=F) +
+  guides(color=guide_legend(ncol=1), fill=guide_legend(ncol=1)) +
+  labs(color=NULL, fill=NULL)
+
+```
+
+# Efficiency metrics
+
+Use Danish data for largest capacity wind turbines. Forefront of R&D: https://www.offshorewind.biz/2021/11/12/worlds-largest-most-powerful-wind-turbine-stands-complete/. Average capacity per turbine in offshore.
+
+Parameter count by papers.
+
+```{r}
+pacman::p_load(RJSONIO)
+
+# Wind turbine efficiency
+tur <- RJSONIO::fromJSON("https://turbines.dk/static/data/turbine-stats.json")
+turbine_efficiency <- tibble(date=tur$date,
+       offshore=tur$capacity$offshore %>% as.character %>% as.numeric,
+       onshore=tur$capacity$onshore,
+       kW = pmax(offshore, onshore,na.rm=T),
+       year = str_sub(date, 1, 4) %>% as.numeric) %>% 
+  select(year, kW)
+
+# Solar efficiency
+solar_eff <- gsheet2tbl("https://docs.google.com/spreadsheets/d/10OUeb23qy1Mm8jvkrDKf96C9iLyRqvxToiTqFZk9-5g/edit#gid=583052699") %>% 
+  group_by(Year) %>% 
+  summarise(`Efficiency %` = max(`Efficiency (%)`))
+
+# AGI 
+compute_used <- gsheet2tbl("https://docs.google.com/spreadsheets/d/10OUeb23qy1Mm8jvkrDKf96C9iLyRqvxToiTqFZk9-5g/edit#gid=727025152") %>% 
+  group_by(year) %>% 
+  summarise(Training_computation_petaflop = max(Training_computation_petaflop))
+
+lines <- readLines("alignment_texts.jsonl")
+lines <- lapply(lines, function(x) {
+  out <- jsonlite::fromJSON
+  out$date_published
+})
+lines <- lapply(lines, unlist)
+x <- bind_rows(lines)
+
+```
+
+
 
